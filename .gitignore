@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.DS_Store
+/public/ort/
+/public/coi-serviceworker.js
+/public/models/*.onnx
+/public/models/*.partial
+/coverage/
+/.npm-cache/

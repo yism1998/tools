@@ -1,0 +1,25 @@
+{
+  "name": "lama-browser-lab",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "postinstall": "node scripts/copy-runtime.mjs && node scripts/copy-coi.mjs",
+    "dev": "vite --host 127.0.0.1",
+    "build": "npm run model:fetch && vue-tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "model:fetch": "node scripts/fetch-model.mjs"
+  },
+  "dependencies": {
+    "onnxruntime-web": "1.30.0",
+    "vue": "3.5.44",
+    "coi-serviceworker": "0.1.7"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.6",
+    "typescript": "~5.9.3",
+    "vite": "8.3.5",
+    "vue-tsc": "^3.1.0",
+    "@types/node": "^24.0.0"
+  }
+}
