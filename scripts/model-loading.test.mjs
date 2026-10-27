@@ -23,29 +23,28 @@ function worker(fetch) {
 }
 function response() { return new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-length': '3' } }); }
 
-test('preload and repair share one model download and preload does not run inference', async () => {
-  let downloads = 0, release;
-  const gate = new Promise(resolve => { release = resolve; });
-  const sw = worker(async () => { downloads++; await gate; return response(); });
-  const preload = sw.send({ id: 1, type: 'preload' });
-  const repair = sw.send({ id: 2, type: 'repair', image: new Float32Array(3), mask: new Float32Array(1) });
-  release(); await Promise.all([preload, repair]);
+test('first clear downloads the model and later clears reuse the model and session', async () => {
+  let downloads = 0;
+  const sw = worker(async () => { downloads++; return response(); });
+  assert.equal(downloads, 0);
+  await sw.send({ id: 1, type: 'repair', image: new Float32Array(3), mask: new Float32Array(1) });
   assert.equal(downloads, 1);
   assert.equal(sw.creates, 1);
-  assert.equal(sw.messages.filter(m => m.type === 'model-ready').length, 2);
-  assert.equal(sw.messages.filter(m => m.type === 'result').length, 1);
-  assert.equal(sw.messages.find(m => m.type === 'result').id, 2);
-  await sw.send({ id: 3, type: 'preload' });
-  assert.equal(downloads, 1, 'loaded model is reused');
+  assert.equal(sw.messages.at(-1).type, 'result');
+  await sw.send({ id: 2, type: 'repair', image: new Float32Array(3), mask: new Float32Array(1) });
+  assert.equal(sw.messages.at(-1).type, 'result');
+  assert.equal(sw.messages.at(-1).id, 2);
+  assert.equal(downloads, 1);
+  assert.equal(sw.creates, 1);
 });
 
-test('preload failure can retry and successful preloading never creates a session', async () => {
+test('failed model download can retry when clear is clicked again', async () => {
   let downloads = 0;
   const sw = worker(async () => { if (++downloads === 1) throw new Error('Offline'); return response(); });
-  await sw.send({ id: 1, type: 'preload' });
+  await sw.send({ id: 1, type: 'repair', image: new Float32Array(3), mask: new Float32Array(1) });
   assert.equal(sw.messages.at(-1).type, 'error');
-  await sw.send({ id: 2, type: 'preload' });
-  assert.equal(sw.messages.at(-1).type, 'model-ready');
+  await sw.send({ id: 2, type: 'repair', image: new Float32Array(3), mask: new Float32Array(1) });
+  assert.equal(sw.messages.at(-1).type, 'result');
   assert.equal(downloads, 2);
-  assert.equal(sw.creates, 0);
+  assert.equal(sw.creates, 1);
 });

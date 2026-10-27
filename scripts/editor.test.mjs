@@ -98,22 +98,27 @@ test('mouse middle-button and hand-tool dragging do not paint', () => {
   assert.equal(app.run('selected.value'), 0);
 });
 
-test('zoom buttons start one preload, allow editing during download and permit retries', () => {
+test('zoom controls do not load the model; first clear action loads it and can retry', async () => {
   const app = editor();
   app.run('zoomButton(1.25); zoomButton(1.5); zoomButton("fit")');
+  assert.equal(app.workers.length, 0, 'zooming must not start a Worker or download');
+  assert.equal(app.timers.size, 0);
+  app.run('working = new ImageData(4, 4); pointerDown(event(1, 100, 100)); pointerUp(event(1, 100, 100)); const first = repair()');
   assert.equal(app.workers.length, 1);
   assert.equal(app.workers[0].messages.length, 1);
-  assert.equal(app.run('disabled.value'), false);
+  assert.equal(app.workers[0].messages[0].type, 'repair');
+  assert.equal(app.run('busy.value'), true);
   const id = app.workers[0].messages[0].id;
   app.workers[0].emit({ id, type: 'progress', message: 'loading', value: .5 });
-  assert.equal(app.run('modelProgress.value'), .5);
+  assert.equal(app.run('progress.value'), .5);
   app.workers[0].emit({ id, type: 'error', message: 'offline' });
-  app.run('zoomButton(1.25)');
+  await app.run('first');
+  assert.equal(app.run('selected.value'), 1);
+  assert.equal(app.run('busy.value'), false);
+  app.run('const retry = repair()');
   assert.equal(app.workers[0].messages.length, 2);
-  app.workers[0].emit({ id: app.workers[0].messages[1].id, type: 'model-ready' });
-  app.run('zoomButton(1.5)');
-  assert.equal(app.workers[0].messages.length, 2);
-  assert.equal(app.run('modelReady.value'), true);
+  app.run('cancel()');
+  await app.run('retry');
   assert.equal(app.timers.size, 0);
 });
 
@@ -125,8 +130,9 @@ test('removing an image cancels a repair, frees state, ignores stale messages an
   app.run('removeImage()');
   await app.run('job');
   assert.equal(app.workers[0].terminated, true);
-  app.workers[0].emit({ id: 1, type: 'model-ready' });
-  assert.equal(app.run('modelReady.value'), false);
+  const status = app.run('status.value');
+  app.workers[0].emit({ id: 1, type: 'progress', message: 'stale result', value: 1 });
+  assert.equal(app.run('status.value'), status);
   for (const expression of ['loaded.value', 'busy.value', 'hasResult.value']) assert.equal(app.run(expression), false);
   assert.equal(app.run('selected.value'), 0);
   assert.equal(app.run('working'), undefined);
