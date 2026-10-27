@@ -72,6 +72,10 @@ GitHub Pages 不能通过 Vite 配置自定义这些响应头，因此额外提�
 
 应用位于 `/tools/` 时，Service Worker 的作用域也限定在 `/tools/`，不会控制该域名下其他项目。
 
+`scripts/copy-coi.mjs` 在安装时为固定版本的 Service Worker 应用补丁：仅拦截同源 GET，为页面、模型和 WASM 保留隔离响应头；跨域请求与 POST（包括 Cloudflare 上报）交由浏览器处理。网络失败保持 Promise rejection，避免上游错误处理返回空值导致 `respondWith` 二次报错。运行 `npm test` 验证这些行为。
+
+如果统计上报仍失败，请确认 Cloudflare Web Analytics 的 hostname 为实际访问域名（Pages 默认为 `yism1998.github.io`），并检查浏览器扩展或网络是否拦截 `cloudflareinsights.com`。更新部署后，现有标签页可能仍受旧版 Service Worker 控制，需要刷新以启用新版本。
+
 ## 使用与限制
 
 - 支持 PNG、JPG、WebP；文件拖入仅本地读取。

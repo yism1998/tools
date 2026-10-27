@@ -8,6 +8,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "npm run model:fetch && vue-tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
+    "test": "node scripts/copy-coi.mjs && node --test scripts/coi-serviceworker.test.mjs",
     "model:fetch": "node scripts/fetch-model.mjs"
   },
   "dependencies": {
