@@ -44,6 +44,26 @@ BASE_PATH=/tools/ npm run preview
 
 模型与 WASM 都随 Pages 产物同源发布，浏览器无需直接访问 Hugging Face。首次加载传输约 208MB 模型和 14MB WASM，需要考虑 Pages 的带宽配额。
 
+### 模型压缩评估
+
+可以先压缩模型，再在浏览器的推理 Worker 中解压后交给 ONNX Runtime。2026-10-27 对 `model.json` 固定的 FP32 模型使用 Node.js `node:zlib` 实测（MB 按 1,000,000 字节计算）：
+
+| 格式 | 字节数 | 大小 | 相比原文件减少 |
+| --- | ---: | ---: | ---: |
+| 原始 ONNX | 208,044,816 | 208.04 MB | — |
+| gzip，level 9 | 189,935,149 | 189.94 MB | 8.70% |
+| Brotli，quality 6 | 189,564,402 | 189.56 MB | 8.88% |
+
+无损压缩不会改变模型结果，但当前模型的收益约为 18 MB，解压后的模型仍为 208 MB，也不会降低推理所需内存。当前版本保持原模型分发，以上是评估结果，尚未启用压缩加载。
+
+- 如果继续使用 GitHub Pages，可在构建时生成 `.onnx.gz`，在 Worker 中使用原生 [`DecompressionStream('gzip')`](https://developer.mozilla.org/en-US/docs/Web/API/DecompressionStream) 流式解压，按压缩文件的字节数显示下载进度，并对解压结果校验大小和 SHA-256。解压缓存需要带模型版本；不支持此 API 的浏览器需要回退到原文件。若服务器已通过 `Content-Encoding: gzip` 自动解压，应用不能再次解压。
+- 如果使用能够配置 HTTP 响应头的托管服务，可让服务端协商 gzip/Brotli，浏览器自动解压，应用继续请求原来的 ONNX 地址。仅上传 `.gz` 文件不会自动实现这一步。
+- 要显著降低下载量，需要进一步评估 [FP16](https://onnxruntime.ai/docs/performance/model-optimizations/float16.html) 或 [INT8 量化](https://onnxruntime.ai/docs/performance/model-optimizations/quantization.html)：权重存储理论上分别约为 FP32 的一半、四分之一，最终文件大小取决于可转换的算子和权重。它们会改变数值精度，必须验证当前 `onnxruntime-web/wasm` 的算子兼容性、推理速度及图片修复质量，不能直接替换。
+
+### 访问统计
+
+`index.html` 已按 [Cloudflare 的手动接入方式](https://developers.cloudflare.com/web-analytics/get-started/) 加入 Web Analytics，使用 `type="module"` 加载统计脚本。部署后需在 Cloudflare Web Analytics 中确认该 token 对应的站点 hostname 与实际访问域名一致（默认 Pages 域名为 `yism1998.github.io`）。图片修复仍在本地执行，统计脚本只用于访问与性能统计。
+
 ### WASM 多线程
 
 固定使用 WASM，不请求 WebGPU。开发和预览服务器配置了 COOP/COEP 响应头。
