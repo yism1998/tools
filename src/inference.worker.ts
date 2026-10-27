@@ -1,6 +1,6 @@
 import * as ort from 'onnxruntime-web/wasm';
 
-type Task = { id: number; image: Float32Array; mask: Float32Array };
+type Task = { id: number; type: 'preload' } | { id: number; type: 'repair'; image: Float32Array; mask: Float32Array };
 const scope = globalThis as unknown as {
   postMessage: (message: unknown, transfer?: Transferable[]) => void;
   onmessage: ((event: MessageEvent<Task>) => void) | null;
@@ -12,12 +12,24 @@ const MODEL_URL = `${import.meta.env.BASE_URL}models/lama_fp32.onnx`;
 const CACHE = 'lama-fp32-carve-c3c0c9e-v1';
 let model: Uint8Array | undefined;
 let session: ort.InferenceSession | undefined;
+let modelLoading: Promise<void> | undefined;
+const modelListeners = new Set<number>();
 
 function progress(id: number, message: string, value?: number) {
   scope.postMessage({ id, type: 'progress', message, value });
 }
 async function load(id: number) {
   if (model) return;
+  modelListeners.add(id);
+  try {
+    // Preloading and a repair can arrive together. Share the same download.
+    await (modelLoading ??= readModel());
+  } finally {
+    modelListeners.delete(id);
+    if (!model) modelLoading = undefined;
+  }
+}
+async function readModel() {
   let response: Response | undefined;
   let cache: Cache | undefined;
   try { cache = await caches.open(CACHE); response = await cache.match(MODEL_URL); }
@@ -37,7 +49,7 @@ async function load(id: number) {
     if (done) break;
     chunks.push(value); bytes += value.byteLength;
     if (performance.now() - lastProgress > 100 || bytes === total) {
-      progress(id, `加载修复模型 · ${Math.round(bytes / 1e6)} / ${Math.round(total / 1e6)} MB`, bytes / total);
+      for (const id of modelListeners) progress(id, `加载修复模型 · ${Math.round(bytes / 1e6)} / ${Math.round(total / 1e6)} MB`, Math.min(1, bytes / total));
       lastProgress = performance.now();
     }
   }
@@ -54,7 +66,10 @@ scope.onmessage = async ({ data: task }) => {
   let image: ort.Tensor | undefined, mask: ort.Tensor | undefined;
   let results: ort.InferenceSession.ReturnType | undefined;
   try {
-    await load(task.id); await create(task.id);
+    await load(task.id);
+    scope.postMessage({ id: task.id, type: 'model-ready' });
+    if (task.type === 'preload') return;
+    await create(task.id);
     progress(task.id, '正在修复涂抹区域…');
     image = new ort.Tensor('float32', task.image, [1, 3, 512, 512]);
     mask = new ort.Tensor('float32', task.mask, [1, 1, 512, 512]);

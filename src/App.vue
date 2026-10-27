@@ -15,6 +15,8 @@ const filename = ref(''), imageSize = ref({ width: 1, height: 1 });
 const selected = ref(0), historySize = ref(0), error = ref('');
 const status = ref('涂抹需要去除的部分，再点击「开始修复」。');
 const progress = ref<number | null>(null), dropDepth = ref(0);
+const modelReady = ref(false), modelLoading = ref(false), modelProgress = ref<number | null>(null);
+const modelStatus = ref('正在下载修复模型…');
 const scale = ref(1), pan = ref({ x: 0, y: 0 }), fitted = ref(true);
 const cursor = ref({ x: 0, y: 0, visible: false });
 const spaceHeld = ref(false), dragging = ref(false);
@@ -28,6 +30,13 @@ let maskCanvas = canvas(1, 1), history: HistoryEntry[] = [];
 let painting = false, last = { x: 0, y: 0 }, dragStart = { x: 0, y: 0 }, panStart = { x: 0, y: 0 };
 let worker: Worker | undefined, jobId = 0, loadId = 0, resizeObserver: ResizeObserver | undefined;
 let pending: { id: number; resolve: (value: InferenceResult) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> } | undefined;
+let preloading: { id: number; timer: ReturnType<typeof setTimeout> } | undefined;
+const PROCESS_TIMEOUT = 300_000;
+type Point = { x: number; y: number };
+const touches = new Map<number, Point>();
+let activePointer: number | undefined, touchGesture = false;
+let pinch: { distance: number; center: Point; scale: number; pan: Point } | undefined;
+let touchStroke: { mask: ImageData; history: HistoryEntry[]; status: string } | undefined;
 
 function maskPixels() { return maskCanvas.getContext('2d')!.getImageData(0, 0, maskCanvas.width, maskCanvas.height); }
 function selection() {
@@ -67,6 +76,11 @@ function zoomTo(value: number, anchor?: { x: number; y: number }) {
   pan.value = { x: a.x - (a.x - pan.value.x) * ratio, y: a.y - (a.y - pan.value.y) * ratio };
   scale.value = next; fitted.value = false;
 }
+function zoomButton(value: number | 'fit') {
+  if (!loaded.value || disabled.value) return;
+  if (value === 'fit') fitImage(); else zoomTo(value);
+  preloadModel();
+}
 function wheel(e: WheelEvent) {
   if (!loaded.value || disabled.value) return;
   const r = viewport.value!.getBoundingClientRect();
@@ -94,20 +108,64 @@ function dab(a: { x: number; y: number }, b: { x: number; y: number }) {
 }
 function pointerDown(e: PointerEvent) {
   if (disabled.value || !loaded.value || (e.button !== 0 && e.button !== 1)) return;
+  if (e.pointerType === 'touch') {
+    e.preventDefault();
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    viewport.value!.setPointerCapture(e.pointerId);
+    if (touches.size >= 2) {
+      // Undo the provisional one-finger stroke when a second finger arrives.
+      if (touchStroke) {
+        maskCanvas.getContext('2d')!.putImageData(touchStroke.mask, 0, 0);
+        history = touchStroke.history; historySize.value = history.length; renderMask();
+        status.value = touchStroke.status;
+        touchStroke = undefined;
+      }
+      painting = false; dragging.value = false; activePointer = undefined;
+      touchGesture = true; cursor.value.visible = false; beginPinch(); return;
+    }
+    if (touchGesture) return;
+  } else if (activePointer !== undefined || touches.size) return;
   if (moving.value || e.button === 1) {
     e.preventDefault(); dragging.value = true; cursor.value.visible = false;
     dragStart = { x: e.clientX, y: e.clientY }; panStart = { ...pan.value };
   } else {
     if (showOriginal.value) return;
     updateCursor(e.clientX, e.clientY); if (!cursor.value.visible) return;
-    e.preventDefault(); pushHistory({ type: 'mask', mask: maskPixels() });
+    e.preventDefault();
+    const mask = maskPixels();
+    if (e.pointerType === 'touch') touchStroke = { mask, history: [...history], status: status.value };
+    pushHistory({ type: 'mask', mask });
     painting = true; last = imagePoint(e); dab(last, last);
     status.value = '已涂抹的区域会被修复，其余部分保持原样。';
   }
+  activePointer = e.pointerId;
   viewport.value!.setPointerCapture(e.pointerId);
 }
+function touchPair() {
+  const [a, b] = touches.values();
+  return { distance: Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)), center: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
+}
+function beginPinch() {
+  const { distance, center } = touchPair();
+  pinch = { distance, center, scale: scale.value, pan: { ...pan.value } };
+}
 function pointerMove(e: PointerEvent) {
+  if (disabled.value) return;
+  if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && touches.size >= 2) {
+    e.preventDefault();
+    const { distance, center } = touchPair(), r = viewport.value!.getBoundingClientRect();
+    const next = Math.min(8, Math.max(.05, pinch.scale * distance / pinch.distance));
+    const ratio = next / pinch.scale;
+    pan.value = {
+      x: center.x - r.left - r.width / 2 - (pinch.center.x - r.left - r.width / 2 - pinch.pan.x) * ratio,
+      y: center.y - r.top - r.height / 2 - (pinch.center.y - r.top - r.height / 2 - pinch.pan.y) * ratio,
+    };
+    scale.value = next; fitted.value = false; cursor.value.visible = false; return;
+  }
+  if (touchGesture) return;
   updateCursor(e.clientX, e.clientY);
+  if (e.pointerId !== activePointer) return;
   if (dragging.value) {
     pan.value = { x: panStart.x + e.clientX - dragStart.x, y: panStart.y + e.clientY - dragStart.y };
     fitted.value = false; return;
@@ -116,6 +174,20 @@ function pointerMove(e: PointerEvent) {
   const p = imagePoint(e); dab(last, p); last = p;
 }
 function pointerUp(e?: PointerEvent) {
+  if (!e) {
+    const ids = [...touches.keys(), ...(activePointer === undefined ? [] : [activePointer])];
+    touches.clear(); touchGesture = false; pinch = undefined; touchStroke = undefined; activePointer = undefined;
+    painting = false; dragging.value = false;
+    for (const id of ids) if (viewport.value?.hasPointerCapture(id)) viewport.value.releasePointerCapture(id);
+    return;
+  }
+  touches.delete(e.pointerId);
+  if (touchGesture) {
+    if (touches.size >= 2) beginPinch(); else pinch = undefined;
+    if (!touches.size) touchGesture = false;
+  }
+  if (e.pointerId !== activePointer) return;
+  activePointer = undefined; touchStroke = undefined;
   painting = false; dragging.value = false;
   if (e && viewport.value?.hasPointerCapture(e.pointerId)) viewport.value.releasePointerCapture(e.pointerId);
 }
@@ -134,6 +206,18 @@ function clearMask() {
 function chooseTool(value: Tool) { tool.value = value; cursor.value.visible = false; showOriginal.value = false; renderPhoto(); }
 function compareOriginal() { showOriginal.value = !showOriginal.value; cursor.value.visible = false; renderPhoto(); }
 function openFile() { if (!disabled.value) fileInput.value?.click(); }
+function removeImage() {
+  ++loadId; cancel(); pointerUp();
+  original = undefined; working = undefined; maskCanvas = canvas(1, 1);
+  history = []; historySize.value = 0; selected.value = 0;
+  loaded.value = false; loading.value = false; busy.value = false; hasResult.value = false;
+  showOriginal.value = false; tool.value = 'brush'; filename.value = ''; error.value = ''; progress.value = null;
+  imageSize.value = { width: 1, height: 1 }; scale.value = 1; pan.value = { x: 0, y: 0 }; fitted.value = true;
+  cursor.value.visible = false; dropDepth.value = 0; spaceHeld.value = false;
+  if (fileInput.value) fileInput.value.value = '';
+  for (const el of [photo.value, overlay.value]) if (el) { el.width = 1; el.height = 1; }
+  status.value = '涂抹需要去除的部分，再点击「开始修复」。';
+}
 async function loadImage(url: string, name: string, sample = false) {
   const id = ++loadId; loading.value = true; error.value = ''; pointerUp();
   try {
@@ -183,34 +267,59 @@ async function drop(e: DragEvent) {
 function ensureWorker() {
   if (worker) return worker;
   worker = new Worker(new URL('./inference.worker.ts', import.meta.url), { type: 'module' });
+  const instance = worker;
   worker.onmessage = ({ data }) => {
+    if (worker !== instance) return;
+    if (data.type === 'model-ready') modelReady.value = true;
+    if (preloading && data.id === preloading.id) {
+      if (data.type === 'progress') { modelStatus.value = data.message; modelProgress.value = data.value ?? null; return; }
+      clearTimeout(preloading.timer); preloading = undefined; modelLoading.value = false; modelProgress.value = null;
+      if (data.type === 'error') error.value = data.message;
+      return;
+    }
     if (!pending || data.id !== pending.id) return;
+    if (data.type === 'model-ready') return;
     if (data.type === 'progress') { status.value = data.message; progress.value = data.value ?? null; return; }
     clearTimeout(pending.timer); const job = pending; pending = undefined;
     if (data.type === 'error') job.reject(new Error(data.message)); else job.resolve(data);
   };
-  worker.onerror = () => { cancel('修复工具启动失败，请重新尝试。'); };
+  worker.onerror = () => { if (worker === instance) cancel('修复工具启动失败，请重新尝试。'); };
   return worker;
+}
+function preloadModel() {
+  if (modelReady.value || preloading) return;
+  const id = ++jobId;
+  error.value = '';
+  modelLoading.value = true; modelProgress.value = null; modelStatus.value = '正在下载修复模型…';
+  preloading = { id, timer: setTimeout(() => cancel('模型下载时间较长，已停止，请再次点击缩放按钮重试。'), PROCESS_TIMEOUT) };
+  try { ensureWorker().postMessage({ id, type: 'preload' }); }
+  catch { cancel('模型下载启动失败，请再次点击缩放按钮重试。'); }
 }
 function request(data: { image: Float32Array; mask: Float32Array }) {
   return new Promise<InferenceResult>((resolve, reject) => {
     const id = ++jobId;
-    pending = { id, resolve, reject, timer: setTimeout(() => cancel('处理时间较长，已停止。请缩小涂抹区域后重试。'), 150_000) };
-    ensureWorker().postMessage({ id, ...data }, [data.image.buffer, data.mask.buffer]);
+    pending = { id, resolve, reject, timer: setTimeout(() => cancel('处理已超过 5 分钟，已停止。请缩小涂抹区域后重试。'), PROCESS_TIMEOUT) };
+    try { ensureWorker().postMessage({ id, type: 'repair', ...data }, [data.image.buffer, data.mask.buffer]); }
+    catch { cancel('修复工具启动失败，请重新尝试。'); }
   });
 }
 function cancel(message = '已取消修复，涂抹区域已保留。') {
   worker?.terminate(); worker = undefined;
+  modelReady.value = false;
+  if (preloading) { clearTimeout(preloading.timer); preloading = undefined; modelLoading.value = false; modelProgress.value = null; error.value = message; }
   if (pending) { clearTimeout(pending.timer); const job = pending; pending = undefined; job.reject(new Error(message)); }
 }
 async function repair() {
   if (!working || disabled.value || !selected.value) return;
   const base = working, mask = selection(), savedMask = maskPixels();
+  const id = loadId;
+  pointerUp();
   const crop = prepare(base, mask);
   busy.value = true; cursor.value.visible = false; showOriginal.value = false; error.value = ''; progress.value = null;
   status.value = '正在准备修复…'; renderPhoto();
   try {
     const raw = await request({ image: crop.rgb, mask: crop.mask });
+    if (id !== loadId) return;
     const combined = composite(base, mask, raw.output, crop);
     if (combined.outsideChanged !== 0) throw new Error('图像校验未通过，请重试。');
     pushHistory({ type: 'repair', image: base, mask: savedMask, hadResult: hasResult.value });
@@ -219,8 +328,8 @@ async function repair() {
     renderPhoto(); status.value = '修复完成，可继续涂抹，或导出图片。';
     console.info('[LaMa repair]', JSON.stringify({ backend: raw.backend, threads: raw.threads, inferenceMs: raw.runMs,
       selectedPixels: crop.selected, outsideMaskChangedPixels: combined.outsideChanged, insideMaskChangedPixels: combined.insideChanged }));
-  } catch (e) { error.value = (e as Error).message; status.value = '涂抹区域已保留，可重新尝试。'; }
-  finally { busy.value = false; progress.value = null; }
+  } catch (e) { if (id === loadId) { error.value = (e as Error).message; status.value = '涂抹区域已保留，可重新尝试。'; } }
+  finally { if (id === loadId) { busy.value = false; progress.value = null; } }
 }
 function download() {
   if (!working || disabled.value || !hasResult.value) return;
@@ -259,6 +368,17 @@ onUnmounted(() => {
       <span class="privacy"><Icon name="lock" :size="13" /> 仅在本机处理</span>
       <div class="header-actions"><button v-if="loaded" class="button button-quiet" :disabled="disabled" @click="openFile"><Icon name="upload" :size="16" /><span>更换图片</span></button><button class="button button-dark" :disabled="disabled || !hasResult" @click="download"><Icon name="download" :size="16" />导出图片</button></div>
     </header>
+    <div class="usage-hint">
+      <span><b>触屏</b> 双指缩放、双指拖动；选择「移动画布」后可单指拖动。</span>
+      <span><b>PC</b> 鼠标滚轮缩放，按住空格或鼠标中键拖动。</span>
+      <small>首次点击缩放按钮会下载约 208 MB 修复模型；已有缓存时直接加载。</small>
+    </div>
+    <div v-if="modelLoading || modelReady" class="model-notice" role="status" aria-live="polite">
+      <span v-if="modelLoading" class="spinner"></span><Icon v-else name="check" :size="14" />
+      <span>{{ modelLoading ? modelStatus : '修复模型已就绪' }}</span>
+      <progress v-if="modelLoading" :value="modelProgress ?? undefined" max="1" aria-label="模型下载进度"></progress>
+      <button v-if="modelLoading && !busy" @click="cancel('已取消模型下载，再次点击缩放按钮可重试。')">取消下载</button>
+    </div>
     <main class="editor-layout">
       <aside class="tool-panel">
         <div class="panel-intro"><h1>修复工具</h1><p>涂抹需要去除的区域</p></div>
@@ -271,13 +391,13 @@ onUnmounted(() => {
         <div class="panel-bottom"><div class="brush-note"><span class="sample-dot"></span><p>蓝色区域会被修复<br /><span>涂抹时覆盖完整边缘</span></p></div><button class="button button-primary repair-button" :disabled="disabled || !selected" @click="repair"><span v-if="busy" class="spinner"></span><Icon v-else name="spark" :size="18" />{{ busy ? '正在修复' : '开始修复' }}</button><button v-if="busy" class="cancel-button" @click="cancel()">取消处理</button></div>
       </aside>
       <section class="canvas-panel" aria-label="图片编辑器">
-        <div class="canvas-toolbar"><div class="file-info"><Icon name="image" :size="16" /><span>{{ loaded ? filename : '添加一张图片，开始修复' }}</span><small v-if="loaded">{{ imageSize.width }} × {{ imageSize.height }}</small></div><button v-if="hasResult" :class="['compare-button', { active: showOriginal }]" :aria-pressed="showOriginal" :disabled="disabled" @click="compareOriginal"><Icon name="compare" :size="16" />{{ showOriginal ? '返回编辑' : '查看原图' }}</button></div>
+        <div class="canvas-toolbar"><div class="file-info"><Icon name="image" :size="16" /><span>{{ loaded ? filename : '添加一张图片，开始修复' }}</span><small v-if="loaded">{{ imageSize.width }} × {{ imageSize.height }}</small></div><div class="canvas-actions"><button v-if="hasResult" :class="['compare-button', { active: showOriginal }]" :aria-pressed="showOriginal" :disabled="disabled" @click="compareOriginal"><Icon name="compare" :size="16" />{{ showOriginal ? '返回编辑' : '查看原图' }}</button><button v-if="loaded" class="remove-image" aria-label="删除当前图片" title="删除当前图片" :disabled="loading" @click="removeImage"><Icon name="close" :size="18" /></button></div></div>
         <div ref="viewport" :class="['canvas-viewport', { moving, dragging, 'is-busy': disabled }]" @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerUp" @pointercancel="pointerUp" @lostpointercapture="pointerUp" @pointerleave="cursor.visible = false" @wheel.prevent="wheel" @contextmenu.prevent>
           <div v-show="loaded" class="canvas-stack" :style="stackStyle"><canvas ref="photo" aria-label="图片预览"></canvas><canvas ref="overlay" aria-label="使用圆形画笔涂抹需要去除的部分"></canvas></div>
           <div v-if="!loaded" class="empty-state"><div class="upload-art"><div class="art-back"></div><div class="art-front"><Icon name="image" :size="44" /><span><Icon name="plus" :size="17" /></span></div></div><h2>把图片拖到这里</h2><p>或从你的设备中选择一张图片</p><button class="button button-primary upload-button" :disabled="loading" @click="openFile"><Icon name="upload" :size="17" />{{ loading ? '正在读取…' : '选择图片' }}</button><span class="formats">支持 JPG、PNG、WebP</span><button class="sample-link" :disabled="loading" @click="loadImage(sampleUrl, '示例图片.jpg', true)">没有图片？试用示例 <span>↗</span></button></div>
           <div v-if="cursor.visible && loaded && !moving && !disabled && !showOriginal" :class="['brush-cursor', { erasing: tool === 'eraser' }]" :style="cursorStyle"><span></span></div>
           <span v-if="showOriginal" class="original-badge">原始图片 · 仅预览</span>
-          <div v-if="loaded" class="zoom-controls" @pointerdown.stop @pointermove.stop @pointerup.stop><button aria-label="缩小" title="缩小" :disabled="disabled || scale <= .05" @click="zoomTo(scale / 1.25)"><Icon name="minus" :size="17" /></button><button class="zoom-value" aria-label="恢复原始尺寸" title="原始尺寸" :disabled="disabled" @click="zoomTo(1)">{{ zoomLabel }}</button><button aria-label="放大" title="放大" :disabled="disabled || scale >= 8" @click="zoomTo(scale * 1.25)"><Icon name="plus" :size="17" /></button><span class="zoom-divider"></span><button aria-label="适应画布" title="适应画布" :disabled="disabled" @click="fitImage"><Icon name="fit" :size="17" /></button></div>
+          <div v-if="loaded" class="zoom-controls" @pointerdown.stop @pointermove.stop @pointerup.stop><button aria-label="缩小" title="缩小" :disabled="disabled || scale <= .05" @click="zoomButton(scale / 1.25)"><Icon name="minus" :size="17" /></button><button class="zoom-value" aria-label="恢复原始尺寸" title="原始尺寸" :disabled="disabled" @click="zoomButton(1)">{{ zoomLabel }}</button><button aria-label="放大" title="放大" :disabled="disabled || scale >= 8" @click="zoomButton(scale * 1.25)"><Icon name="plus" :size="17" /></button><span class="zoom-divider"></span><button aria-label="适应画布" title="适应画布" :disabled="disabled" @click="zoomButton('fit')"><Icon name="fit" :size="17" /></button></div>
           <div v-if="loading && loaded" class="reading-overlay"><span class="spinner"></span>正在读取图片…</div>
         </div>
         <div class="canvas-footer" role="status" aria-live="polite"><div class="status-text"><span v-if="busy" class="spinner"></span><span v-else class="status-dot" :class="{ selected: selected > 0 }"></span><span>{{ loaded ? status : '你的图片只在当前浏览器中处理。' }}</span></div><span class="navigation-hint" v-if="loaded">滚轮缩放<span>·</span>空格拖动</span><div v-if="busy && progress !== null" class="load-progress"><span :style="{ width: `${Math.round(progress * 100)}%` }"></span></div></div>
