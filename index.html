@@ -3,8 +3,57 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="在浏览器中运行 LaMa，涂抹水印并清除，全程本地处理。" />
-    <title>LaMa · 水印清除</title>
+    <title>在线水印清除工具 - 图片本地处理，无需上传 | LaMa</title>
+    <meta name="description" content="LaMa 水印清除是一款在浏览器本地运行的图片去水印工具，支持 PNG、JPG、WebP、涂抹选区、双指缩放、原图对比和 PNG 导出。图片无需上传，支持桌面安装，缓存完整后可离线使用。" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://yism1998.github.io/tools/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:site_name" content="LaMa 水印清除" />
+    <meta property="og:title" content="在线水印清除工具 - 图片本地处理，无需上传 | LaMa" />
+    <meta property="og:description" content="涂抹图片水印，在浏览器本地完成清除。支持 PNG、JPG、WebP、原图对比、PNG 导出及桌面安装，图片无需上传。" />
+    <meta property="og:url" content="https://yism1998.github.io/tools/" />
+    <meta property="og:image" content="https://yism1998.github.io/tools/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="LaMa 在线水印清除：图片本地处理，无需上传" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="LaMa 在线水印清除 - 图片本地处理，无需上传" />
+    <meta name="twitter:description" content="在浏览器中涂抹并清除水印，支持原图对比、PNG 导出、桌面安装及缓存后的离线使用。" />
+    <meta name="twitter:image" content="https://yism1998.github.io/tools/og-image.png" />
+    <meta name="twitter:image:alt" content="LaMa 在线水印清除：图片本地处理，无需上传" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://yism1998.github.io/tools/#website",
+            "url": "https://yism1998.github.io/tools/",
+            "name": "LaMa 水印清除",
+            "inLanguage": "zh-CN"
+          },
+          {
+            "@type": "WebPage",
+            "@id": "https://yism1998.github.io/tools/#webpage",
+            "url": "https://yism1998.github.io/tools/",
+            "name": "在线水印清除工具 - 图片本地处理，无需上传 | LaMa",
+            "description": "在浏览器本地运行的图片水印清除工具，涂抹选区后清除水印，图片无需上传。",
+            "inLanguage": "zh-CN",
+            "isAccessibleForFree": true,
+            "isPartOf": {
+              "@id": "https://yism1998.github.io/tools/#website"
+            },
+            "primaryImageOfPage": {
+              "@type": "ImageObject",
+              "url": "https://yism1998.github.io/tools/og-image.png",
+              "width": 1200,
+              "height": 630
+            }
+          }
+        ]
+      }
+    </script>
     <meta name="theme-color" content="#7566e9" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="水印清除" />
@@ -14,6 +63,7 @@
   </head>
   <body>
     <div id="app"></div>
+    <noscript>请启用 JavaScript 后使用水印清除功能，图片将在本机处理，无需上传。</noscript>
     <script type="module" src="/src/main.ts"></script>
     <!-- Cloudflare Web Analytics -->
     <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "9c445727053346e584b3941c6b650e9a"}'></script>
