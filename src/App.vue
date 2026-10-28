@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import Icon from './Icon.vue';
+import InstallApp from './InstallApp.vue';
 import { canvas, composite, prepare } from './image';
 
 type Tool = 'brush' | 'eraser' | 'hand';
@@ -343,7 +344,7 @@ onUnmounted(() => {
     <header class="app-header">
       <div class="brand"><span class="brand-icon"><Icon name="spark" :size="21" /></span><b>LaMa</b><span class="brand-separator"></span><span class="brand-description">水印清除</span></div>
       <span class="privacy"><Icon name="lock" :size="13" /> 仅在本机处理</span>
-      <div class="header-actions"><button v-if="loaded" class="button button-quiet" :disabled="disabled" @click="openFile"><Icon name="upload" :size="16" /><span>更换图片</span></button><button class="button button-dark" :disabled="disabled || !hasResult" @click="download"><Icon name="download" :size="16" />导出图片</button></div>
+      <div class="header-actions"><InstallApp :has-image="loaded" /><button v-if="loaded" class="button button-quiet" :disabled="disabled" @click="openFile"><Icon name="upload" :size="16" /><span>更换图片</span></button><button class="button button-dark" :disabled="disabled || !hasResult" @click="download"><Icon name="download" :size="16" />导出图片</button></div>
     </header>
     <div class="usage-hint">
       <span><b>触屏</b> 双指缩放、双指拖动；选择「移动画布」后可单指拖动。</span>
