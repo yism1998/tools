@@ -25,7 +25,8 @@ const zoomLabel = computed(() => `${Math.round(scale.value * 100)}%`);
 const stackStyle = computed(() => ({ width: `${imageSize.value.width}px`, height: `${imageSize.value.height}px`, transform: `translate(-50%, -50%) translate(${pan.value.x}px, ${pan.value.y}px) scale(${scale.value})` }));
 const cursorStyle = computed(() => ({ left: `${cursor.value.x}px`, top: `${cursor.value.y}px`, width: `${brush.value * scale.value}px`, height: `${brush.value * scale.value}px` }));
 let original: ImageData | undefined, working: ImageData | undefined;
-let maskCanvas = canvas(1, 1), history: HistoryEntry[] = [];
+let maskCanvas: HTMLCanvasElement;
+let history: HistoryEntry[] = [];
 let painting = false, last = { x: 0, y: 0 }, dragStart = { x: 0, y: 0 }, panStart = { x: 0, y: 0 };
 let worker: Worker | undefined, jobId = 0, loadId = 0, resizeObserver: ResizeObserver | undefined;
 let pending: { id: number; resolve: (value: InferenceResult) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> } | undefined;
@@ -328,6 +329,7 @@ function keyboard(e: KeyboardEvent) {
 function releaseKey(e: KeyboardEvent) { if (e.code === 'Space') spaceHeld.value = false; }
 function blur() { spaceHeld.value = false; dropDepth.value = 0; pointerUp(); }
 onMounted(() => {
+  maskCanvas = canvas(1, 1);
   resizeObserver = new ResizeObserver(() => { if (fitted.value) fitImage(); });
   if (viewport.value) resizeObserver.observe(viewport.value);
   window.addEventListener('keydown', keyboard); window.addEventListener('keyup', releaseKey); window.addEventListener('blur', blur);
@@ -353,7 +355,7 @@ onUnmounted(() => {
     </div>
     <main class="editor-layout">
       <aside class="tool-panel">
-        <div class="panel-intro"><h1>清除工具</h1><p>涂抹需要去除的区域</p></div>
+        <div class="panel-intro"><h2>清除工具</h2><p>涂抹需要去除的区域</p></div>
         <div class="tool-section"><div class="tools">
           <button :class="['tool-button', { active: tool === 'brush' }]" :disabled="disabled || !loaded" :aria-pressed="tool === 'brush'" @click="chooseTool('brush')"><Icon name="brush" /><span>涂抹</span><span class="tool-dot"></span></button>
           <button :class="['tool-button', { active: tool === 'eraser' }]" :disabled="disabled || !loaded" :aria-pressed="tool === 'eraser'" @click="chooseTool('eraser')"><Icon name="eraser" /><span>擦除选区</span></button>
@@ -366,7 +368,7 @@ onUnmounted(() => {
         <div class="canvas-toolbar"><div class="file-info"><Icon name="image" :size="16" /><span>{{ loaded ? filename : '添加一张图片，清除水印' }}</span><small v-if="loaded">{{ imageSize.width }} × {{ imageSize.height }}</small></div><div class="canvas-actions"><button v-if="hasResult" :class="['compare-button', { active: showOriginal }]" :aria-pressed="showOriginal" :disabled="disabled" @click="compareOriginal"><Icon name="compare" :size="16" />{{ showOriginal ? '返回编辑' : '查看原图' }}</button><button v-if="loaded" class="remove-image" aria-label="删除当前图片" title="删除当前图片" :disabled="loading" @click="removeImage"><Icon name="close" :size="18" /></button></div></div>
         <div ref="viewport" :class="['canvas-viewport', { moving, dragging, 'is-busy': disabled }]" @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerUp" @pointercancel="pointerUp" @lostpointercapture="pointerUp" @pointerleave="cursor.visible = false" @wheel.prevent="wheel" @contextmenu.prevent>
           <div v-show="loaded" class="canvas-stack" :style="stackStyle"><canvas ref="photo" aria-label="图片预览"></canvas><canvas ref="overlay" aria-label="使用圆形画笔涂抹需要去除的部分"></canvas></div>
-          <div v-if="!loaded" class="empty-state"><div class="upload-art"><div class="art-back"></div><div class="art-front"><Icon name="image" :size="44" /><span><Icon name="plus" :size="17" /></span></div></div><h2>把图片拖到这里</h2><p>或从你的设备中选择一张图片</p><button class="button button-primary upload-button" :disabled="loading" @click="openFile"><Icon name="upload" :size="17" />{{ loading ? '正在读取…' : '选择图片' }}</button><span class="formats">支持 JPG、PNG、WebP</span><button class="sample-link" :disabled="loading" @click="loadImage(sampleUrl, '示例图片.jpg', true)">没有图片？试用示例 <span>↗</span></button></div>
+          <div v-if="!loaded" class="empty-state"><div class="upload-art"><div class="art-back"></div><div class="art-front"><Icon name="image" :size="44" /><span><Icon name="plus" :size="17" /></span></div></div><h1>在线水印清除</h1><p>涂抹水印即可清除，图片无需上传</p><button class="button button-primary upload-button" :disabled="loading" @click="openFile"><Icon name="upload" :size="17" />{{ loading ? '正在读取…' : '选择图片' }}</button><span class="formats">支持拖入 JPG、PNG、WebP 图片</span><button class="sample-link" :disabled="loading" @click="loadImage(sampleUrl, '示例图片.jpg', true)">没有图片？试用示例 <span>↗</span></button></div>
           <div v-if="cursor.visible && loaded && !moving && !disabled && !showOriginal" :class="['brush-cursor', { erasing: tool === 'eraser' }]" :style="cursorStyle"><span></span></div>
           <span v-if="showOriginal" class="original-badge">原始图片 · 仅预览</span>
           <div v-if="loaded" class="zoom-controls" @pointerdown.stop @pointermove.stop @pointerup.stop><button aria-label="缩小" title="缩小" :disabled="disabled || scale <= .05" @click="zoomButton(scale / 1.25)"><Icon name="minus" :size="17" /></button><button class="zoom-value" aria-label="恢复原始尺寸" title="原始尺寸" :disabled="disabled" @click="zoomButton(1)">{{ zoomLabel }}</button><button aria-label="放大" title="放大" :disabled="disabled || scale >= 8" @click="zoomButton(scale * 1.25)"><Icon name="plus" :size="17" /></button><span class="zoom-divider"></span><button aria-label="适应画布" title="适应画布" :disabled="disabled" @click="zoomButton('fit')"><Icon name="fit" :size="17" /></button></div>
