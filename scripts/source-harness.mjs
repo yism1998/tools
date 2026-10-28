@@ -5,6 +5,7 @@ import ts from 'typescript';
 export function sourceHarness(source, globals) {
   const parsed = ts.createSourceFile('handlers.ts', source
     .replaceAll('import.meta.env.BASE_URL', JSON.stringify('/tools/'))
+    .replaceAll('import.meta.env.PROD', 'true')
     .replaceAll('import.meta.url', JSON.stringify('https://example.test/src/App.vue')), ts.ScriptTarget.ES2022, true);
   const isolated = ts.createPrinter().printFile(ts.factory.updateSourceFile(parsed,
     parsed.statements.filter(statement => !ts.isImportDeclaration(statement))));

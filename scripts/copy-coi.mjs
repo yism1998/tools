@@ -20,6 +20,17 @@ patch('const r = event.request;', `const r = event.request;
 // valid respondWith response. Preserve the rejection instead of hiding it.
 patch('\n                .catch((e) => console.error(e))', '');
 
+// Vue owns registration and installation UI. Keep the existing Worker URL so
+// already-installed registrations update in place without a competing Worker.
+const clientMarker = '\n} else {\n    (() => {';
+if (source.split(clientMarker).length !== 2) throw new Error('coi-serviceworker 客户端入口发生变化。');
+source = source.slice(0, source.indexOf(clientMarker)) + '\n}\n';
+patch('fetch(request)', 'pwaFetch(request)');
+patch('self.addEventListener("install", () => self.skipWaiting());',
+  '// Activate updates after existing application windows close.');
+const caching = await readFile(new URL('scripts/pwa-cache.js', root), 'utf8');
+source = `${caching}\n${source}`;
+
 await mkdir(new URL('public/', root), { recursive: true });
 await writeFile(new URL('public/coi-serviceworker.js', root), source);
-console.log('跨源隔离 Service Worker 已复制并应用同源 GET 补丁。');
+console.log('已生成支持跨源隔离与 PWA 缓存的 Service Worker。');

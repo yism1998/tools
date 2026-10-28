@@ -9,7 +9,7 @@ const origin = 'https://example.test';
 function worker(fetch) {
   const listeners = new Map();
   runInNewContext(source, {
-    self: { location: { origin }, addEventListener: (name, handler) => listeners.set(name, handler) },
+    self: { location: { origin, href: `${origin}/tools/coi-serviceworker.js` }, addEventListener: (name, handler) => listeners.set(name, handler) },
     fetch, URL, Request, Response, Headers, console,
   });
   return {
