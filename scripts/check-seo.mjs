@@ -8,6 +8,8 @@ assert.ok(html.includes(`rel="canonical" href="${canonical}"`));
 assert.equal((html.match(/<h1(?:\s|>)/g) || []).length, 1, '首页应包含一个明确的主标题');
 assert.match(html, /<h1[^>]*>在线水印清除<\/h1>/);
 assert.ok(!html.includes('<div id="app"></div>'), '首页正文必须存在于原始 HTML');
+assert.match(html, /<nav[^>]*aria-label="工具导航"/);
+assert.match(html, /href="#\/watermark"[^>]*aria-current="page"/);
 const schema = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);
 const page = schema['@graph'].find(node => node['@type'] === 'WebPage');
 assert.equal(page.url, canonical);

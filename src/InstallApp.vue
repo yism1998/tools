@@ -63,7 +63,7 @@ onUnmounted(() => {
 <template>
   <button v-if="!installed" class="button button-quiet install-button" :disabled="prompting" @click="install"><span>{{ prompting ? '正在打开…' : '安装到桌面' }}</span></button>
   <dialog ref="guide" class="install-guide" aria-labelledby="install-heading" @click="($event.target === guide) && guide?.close()">
-    <h2 id="install-heading">安装水印清除</h2>
+    <h2 id="install-heading">安装工具箱</h2>
     <p>{{ instructions }}</p>
     <p class="install-note">安装后可从桌面独立打开。首次清除需要联网下载模型；页面、模型与运行文件缓存完整时可离线使用。</p>
     <button class="button button-primary" @click="guide?.close()">知道了</button>
