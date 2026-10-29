@@ -61,7 +61,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <button v-if="!installed" class="button button-quiet install-button" :disabled="prompting" @click="install"><span>{{ prompting ? '正在打开…' : '安装到桌面' }}</span></button>
+  <button v-if="!installed" class="button button-quiet install-button" :disabled="prompting" @click="install">{{ prompting ? '正在打开…' : '安装到桌面' }}</button>
   <dialog ref="guide" class="install-guide" aria-labelledby="install-heading" @click="($event.target === guide) && guide?.close()">
     <h2 id="install-heading">安装工具箱</h2>
     <p>{{ instructions }}</p>
@@ -71,5 +71,5 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.install-guide{max-width:360px;width:calc(100% - 48px);border:1px solid #e5e0f5;border-radius:16px;padding:26px;color:#65616f;box-shadow:0 18px 70px #30224730}.install-guide::backdrop{background:#29233555}.install-guide h2{font-size:19px;color:#484152;margin:0 0 16px}.install-guide p{font-size:13px;line-height:1.9;margin:0 0 15px}.install-guide .install-note{font-size:11px;color:#9891a5}.install-guide .button{float:right}.header-actions .install-button span{display:inline}@media(max-width:450px){.install-button{padding:9px 8px;font-size:10px}}
+.install-guide{max-width:360px;width:calc(100% - 48px);border:1px solid #e5e0f5;border-radius:16px;padding:26px;color:#65616f;box-shadow:0 18px 70px #30224730}.install-guide::backdrop{background:#29233555}.install-guide h2{font-size:19px;color:#484152;margin:0 0 16px}.install-guide p{font-size:13px;line-height:1.9;margin:0 0 15px}.install-guide .install-note{font-size:11px;color:#9891a5}.install-guide .button{float:right}@media(max-width:450px){.install-button{padding:9px 8px;font-size:10px}}
 </style>
