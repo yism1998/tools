@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "LaMa · 水印清除",
-  "short_name": "水印清除",
-  "description": "在本机涂抹并清除图片水印，支持触屏和鼠标操作。",
+  "name": "Tools · 工具箱",
+  "short_name": "工具箱",
+  "description": "浏览器本地工具箱，支持水印清除、触屏和鼠标操作。",
   "lang": "zh-CN",
   "start_url": "./",
   "scope": "./",

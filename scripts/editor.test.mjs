@@ -4,7 +4,7 @@ import test from 'node:test';
 import { parse } from 'vue/compiler-sfc';
 import { sourceHarness } from './source-harness.mjs';
 
-const { descriptor } = parse(await readFile(new URL('../src/App.vue', import.meta.url), 'utf8'));
+const { descriptor } = parse(await readFile(new URL('../src/pages/WatermarkPage.vue', import.meta.url), 'utf8'));
 class Pixels {
   constructor(data, width, height) {
     this.data = typeof data === 'number' ? new Uint8ClampedArray(data * width * 4) : data;
@@ -26,6 +26,7 @@ function canvas(width, height) {
 }
 function editor() {
   const workers = [], timers = new Map();
+  const lifecycle = {}, listeners = new Map();
   let timerId = 0;
   class Worker {
     messages = [];
@@ -36,7 +37,12 @@ function editor() {
   }
   const app = sourceHarness(descriptor.scriptSetup.content, {
     ref: value => ({ value }), computed: get => ({ get value() { return get(); } }),
-    onMounted() {}, onUnmounted() {}, nextTick: async () => {}, canvas, ImageData: Pixels, Worker,
+    onMounted: fn => { lifecycle.mount = fn; }, onUnmounted: fn => { lifecycle.unmount = fn; },
+    onActivated: fn => { lifecycle.activate = fn; }, onDeactivated: fn => { lifecycle.deactivate = fn; },
+    window: { addEventListener: (name, fn) => listeners.set(name, fn),
+      removeEventListener: (name, fn) => { if (listeners.get(name) === fn) listeners.delete(name); } },
+    ResizeObserver: class { observe() {} disconnect() {} },
+    nextTick: async () => {}, canvas, ImageData: Pixels, Worker,
     prepare: () => ({ rgb: new Float32Array(3), mask: new Float32Array(1) }),
     setTimeout: (callback, duration) => { const id = ++timerId; timers.set(id, { callback, duration }); return id; },
     clearTimeout: id => timers.delete(id),
@@ -52,8 +58,29 @@ function editor() {
       return {pointerId: id, clientX: x, clientY: y, pointerType, button, preventDefault() {}};
     }
   `);
-  return { ...app, workers, timers };
+  return { ...app, workers, timers, lifecycle, listeners };
 }
+
+test('cached tool pauses gestures and keyboard listeners while retaining its image and selection', () => {
+  const app = editor(); app.lifecycle.mount();
+  app.run('fitted.value = false; filename.value = "my-image.png"');
+  app.lifecycle.activate();
+  assert.equal(app.listeners.size, 3);
+  app.run('pointerDown(event(1, 100, 200)); spaceHeld.value = true');
+  app.lifecycle.deactivate();
+  assert.equal(app.listeners.size, 0);
+  assert.equal(app.run('spaceHeld.value'), false);
+  assert.equal(app.run('activePointer'), undefined);
+  assert.equal(app.run('loaded.value'), true);
+  assert.equal(app.run('filename.value'), 'my-image.png');
+  assert.equal(app.run('selected.value'), 1);
+  assert.equal(app.run('historySize.value'), 1);
+  app.lifecycle.activate();
+  assert.equal(app.listeners.size, 3);
+  assert.equal(app.run('selected.value'), 1);
+  app.lifecycle.unmount();
+  assert.equal(app.listeners.size, 0);
+});
 
 test('two-finger zoom and pan restore the provisional stroke and its undo entry', () => {
   const app = editor();
